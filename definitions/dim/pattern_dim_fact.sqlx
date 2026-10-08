@@ -1,0 +1,78 @@
+config {
+  type: "incremental",
+  schema: "siglo_dim_tot",
+  tags: ["dimensional", "facts", "poc_pl", "patron_fact"],
+  description: "PATRÓN 5: Tabla de Hechos financiera masiva (FAC_BALANCE_REAL). Conversión a EUR, cálculo de saldos neto y particionado por año.",
+  bigquery: {
+    partitionBy: "RANGE_BUCKET(anio_periodo, GENERATE_ARRAY(2000, 2035, 1))",
+    clusterBy: ["ide_estructura_contable", "ide_libro_contable", "ide_moneda"]
+  }
+}
+
+js {
+  const fact = require("includes/fact_helpers");
+}
+
+WITH balances_rel AS (
+  SELECT
+    b.ide_libro_contable,
+    b.ide_estructura_contable,
+    b.ide_moneda,
+    b.cod_moneda,
+    b.ide_periodo,
+    b.ide_tpo_balance,
+    b.ide_version_presupuesto,
+    b.ide_tpo_comprometido,
+    b.flg_traslado,
+    b.anio_periodo,
+    b.imp_balance_debe,
+    b.imp_balance_haber,
+    b.imp_inicio_bal_debe,
+    b.imp_inicio_bal_haber,
+    b.cod_origen_creacion,
+    b.tms_carga_rel
+  FROM \`prosegur-siglo-poc.siglo_rel.colb_balance\` b
+  ${when(incremental(), `WHERE b.tms_carga_rel >= (SELECT MAX(tms_carga_fac) FROM ${self()})`)}
+),
+
+conversion_rates AS (
+  SELECT
+    cod_moneda_origen,
+    cod_moneda_destino,
+    ide_periodo,
+    ratio_conversion
+  FROM \`prosegur-siglo-poc.siglo_rel.mstr_conv_moneda\`
+  WHERE cod_moneda_destino = 'EUR'
+)
+
+SELECT
+  b.ide_libro_contable,
+  b.ide_estructura_contable,
+  b.ide_moneda,
+  b.cod_moneda,
+  b.ide_periodo,
+  b.ide_tpo_balance,
+  b.ide_version_presupuesto,
+  b.ide_tpo_comprometido,
+  b.flg_traslado,
+  b.anio_periodo,
+
+  -- Importes en moneda local
+  b.imp_balance_debe,
+  b.imp_balance_haber,
+  ${fact.netBalance("b.imp_balance_debe", "b.imp_balance_haber")} AS imp_balance_neto_loc,
+
+  b.imp_inicio_bal_debe,
+  b.imp_inicio_bal_haber,
+
+  -- Macro para contravaloración a divisa corporativa (EUR)
+  ${fact.convertToEur("b.imp_balance_debe", "c.ratio_conversion", "b.cod_moneda")} AS imp_balance_debe_eur,
+  ${fact.convertToEur("b.imp_balance_haber", "c.ratio_conversion", "b.cod_moneda")} AS imp_balance_haber_eur,
+  ${fact.convertToEur(fact.netBalance("b.imp_balance_debe", "b.imp_balance_haber"), "c.ratio_conversion", "b.cod_moneda")} AS imp_balance_neto_eur,
+
+  b.cod_origen_creacion,
+  CURRENT_TIMESTAMP() AS tms_carga_fac
+FROM balances_rel b
+LEFT JOIN conversion_rates c
+  ON b.cod_moneda = c.cod_moneda_origen
+  AND b.ide_periodo = c.ide_periodo

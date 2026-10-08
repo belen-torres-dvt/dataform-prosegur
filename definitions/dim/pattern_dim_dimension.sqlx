@@ -1,0 +1,49 @@
+config {
+  type: "table",
+  schema: "siglo_dim_tot",
+  tags: ["dimensional", "dimensions", "poc_pl", "patron_dim"],
+  description: "PATRÓN 4: Dimensión consolidada (Europa y LatAm) con soporte multilingüe y resolución de reglas corporativas (ej: flg_inditex).",
+  bigquery: {
+    clusterBy: ["cod_centro_coste", "cod_origen_creacion"]
+  }
+}
+
+js {
+  const dim = require("includes/dimensional_helpers");
+}
+
+WITH rel_centro_coste AS (
+  SELECT
+    ide_participante,
+    ide_centro_coste_orig,
+    cod_centro_coste,
+    descripcion,
+    enabled_flag,
+    flg_resumen,
+    ide_idioma,
+    tms_modificacion,
+    cod_origen_creacion
+  FROM \`prosegur-siglo-poc.siglo_rel.mstr_centro_coste\`
+  WHERE flg_borrado_logico = 'N'
+    AND cod_origen_creacion IN (1, 2)
+)
+
+SELECT
+  r.ide_participante,
+  r.ide_centro_coste_orig,
+  r.cod_centro_coste,
+  r.descripcion,
+  -- Macro para descripción concatenada estandarizada
+  ${dim.concatCodeDesc("r.cod_centro_coste", "r.descripcion")} AS descripcion_concat,
+  COALESCE(r.enabled_flag, 'Y') AS enabled_flag,
+  COALESCE(r.flg_resumen, 'N') AS flg_resumen,
+  
+  -- Macro para regla de negocio corporativa (Inditex)
+  ${dim.flagInditex("r.cod_origen_creacion", "r.cod_centro_coste")} AS flg_inditex,
+
+  -- Macro para resolución de claves foráneas con -1 por defecto
+  ${dim.defaultKey("r.ide_idioma", 11)} AS ide_idioma,
+  r.tms_modificacion,
+  r.cod_origen_creacion,
+  CURRENT_TIMESTAMP() AS tms_carga_dim
+FROM rel_centro_coste r

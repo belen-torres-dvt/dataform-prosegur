@@ -1,0 +1,85 @@
+config {
+  type: "incremental",
+  schema: "siglo_rel",
+  uniqueKey: [
+    "ide_libro_contable",
+    "ide_estructura_contable",
+    "ide_moneda",
+    "ide_periodo",
+    "ide_tpo_balance",
+    "ide_version_presupuesto",
+    "ide_tpo_comprometido",
+    "cod_origen_creacion"
+  ],
+  bigquery: {
+    partitionBy: "RANGE_BUCKET(anio_periodo, GENERATE_ARRAY(2000, 2035, 1))",
+    clusterBy: ["ide_estructura_contable", "ide_libro_contable", "ide_moneda"]
+  },
+  tags: ["relational", "balances", "poc_pl", "patron_rel_balance"],
+  description: "PATRÓN 3: Carga incremental de Balances Contables con particionado por año y clustering dimensional."
+}
+
+js {
+  const stg = require("includes/staging_helpers");
+}
+
+WITH stage_balances AS (
+  SELECT
+    ${stg.toInt64("LEDGER_ID")} AS ide_libro_contable_origen,
+    ${stg.toInt64("CODE_COMBINATION_ID")} AS cod_estructura_contable,
+    ${stg.cleanString("CURRENCY_CODE")} AS cod_moneda,
+    ${stg.cleanString("PERIOD_NAME")} AS nom_periodo,
+    ${stg.cleanString("ACTUAL_FLAG")} AS cod_tpo_balance,
+    ${stg.toInt64("BUDGET_VERSION_ID", -1)} AS ide_version_presupuesto_origen,
+    ${stg.toInt64("ENCUMBRANCE_TYPE_ID", -1)} AS ide_tpo_comprometido_origen,
+    ${stg.cleanString("TRANSLATED_FLAG")} AS flg_traslado,
+    ${stg.toInt64("PERIOD_YEAR")} AS anio_periodo,
+    ${stg.toInt64("PERIOD_NUM")} AS num_periodo,
+    ${stg.toNumeric("PERIOD_NET_DR", 0)} AS imp_balance_debe,
+    ${stg.toNumeric("PERIOD_NET_CR", 0)} AS imp_balance_haber,
+    ${stg.toNumeric("BEGIN_BALANCE_DR", 0)} AS imp_inicio_bal_debe,
+    ${stg.toNumeric("BEGIN_BALANCE_CR", 0)} AS imp_inicio_bal_haber,
+    LAST_UPDATE_DATE,
+    LAST_UPDATED_BY
+  FROM \`prosegur-siglo-poc.siglo_stg.stg_gl_balances\`
+  ${when(incremental(), `WHERE SAFE.PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', LAST_UPDATE_DATE) >= (SELECT MAX(tms_modificacion) FROM ${self()})`)}
+)
+
+SELECT
+  COALESCE(l.ide_libro_contable, -1) AS ide_libro_contable,
+  b.ide_libro_contable_origen,
+  COALESCE(e.ide_estructura_contable, -1) AS ide_estructura_contable,
+  b.cod_estructura_contable,
+  COALESCE(m.ide_moneda, -1) AS ide_moneda,
+  b.cod_moneda,
+  COALESCE(p.ide_periodo, -1) AS ide_periodo,
+  b.nom_periodo,
+  COALESCE(tb.ide_tpo_balance, -1) AS ide_tpo_balance,
+  b.cod_tpo_balance,
+  COALESCE(vp.ide_version_presupuesto, -1) AS ide_version_presupuesto,
+  b.ide_version_presupuesto_origen,
+  b.ide_tpo_comprometido_origen AS ide_tpo_comprometido,
+  b.flg_traslado,
+  b.anio_periodo,
+  b.num_periodo,
+  b.imp_balance_debe,
+  b.imp_balance_haber,
+  b.imp_inicio_bal_debe,
+  b.imp_inicio_bal_haber,
+  ${dataform.projectConfig.vars.aplicacion_origen || 1} AS cod_origen_creacion,
+  CURRENT_TIMESTAMP() AS fec_actualiz,
+  COALESCE(${stg.toTimestamp("b.LAST_UPDATE_DATE")}, CURRENT_TIMESTAMP()) AS tms_modificacion,
+  CURRENT_TIMESTAMP() AS tms_carga_rel
+FROM stage_balances b
+LEFT JOIN \`prosegur-siglo-poc.siglo_rel.colb_libro_contable\` l
+  ON b.ide_libro_contable_origen = l.ide_libro_contable_orig
+LEFT JOIN \`prosegur-siglo-poc.siglo_rel.coec_estructura_contable\` e
+  ON b.cod_estructura_contable = e.cod_estructura_contable
+LEFT JOIN \`prosegur-siglo-poc.siglo_rel.mstr_moneda\` m
+  ON b.cod_moneda = m.cod_moneda
+LEFT JOIN \`prosegur-siglo-poc.siglo_rel.mstr_periodo\` p
+  ON b.nom_periodo = p.nom_periodo
+LEFT JOIN \`prosegur-siglo-poc.siglo_rel.colb_tpo_balance\` tb
+  ON b.cod_tpo_balance = tb.cod_tpo_balance
+LEFT JOIN \`prosegur-siglo-poc.siglo_rel.copr_version_presupuesto\` vp
+  ON b.ide_version_presupuesto_origen = vp.ide_version_presupuesto_orig

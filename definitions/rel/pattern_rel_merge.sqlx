@@ -1,0 +1,53 @@
+config {
+  type: "operations",
+  schema: "siglo_rel",
+  hasOutput: true,
+  tags: ["relational", "poc_pl", "patron_rel_merge"],
+  description: "PATRÓN 2: Fusión Delta Relacional (ODS). Reemplaza tablas dif, crg y scripts FIN_REL mediante MERGE atómico generado por macro."
+}
+
+js {
+  const rel = require("includes/relational_helpers");
+
+  const mergeSql = rel.buildMergeStatement({
+    targetTable: "`prosegur-siglo-poc.siglo_rel.coer_agrupacion`",
+    sourceCte: `(
+      SELECT
+        ide_agrupacion,
+        des_agrupacion,
+        fec_inicio,
+        fec_fin,
+        nom_usuario_creacion,
+        nom_informe_creacion_inicial,
+        fec_creacion,
+        ide_usuario_creacion,
+        fec_actualiz,
+        ide_usuario_actualiz,
+        tms_modificacion,
+        fec_inicio_negocio,
+        cod_origen_creacion
+      FROM \`prosegur-siglo-poc.siglo_stg.man_agrupacion\`
+      WHERE cod_origen_creacion = ${dataform.projectConfig.vars.aplicacion_origen || 1}
+    )`,
+    keyColumns: ["ide_agrupacion", "cod_origen_creacion"],
+    compareColumns: [
+      "des_agrupacion",
+      "fec_inicio",
+      "fec_fin",
+      "nom_usuario_creacion",
+      "nom_informe_creacion_inicial"
+    ],
+    insertColumns: [
+      "ide_agrupacion",
+      "des_agrupacion",
+      "fec_inicio",
+      "fec_fin",
+      "nom_usuario_creacion",
+      "nom_informe_creacion_inicial"
+    ],
+    batchId: "COER_AGRUPACION"
+  });
+}
+
+-- Ejecución de la sentencia MERGE generada por macro
+${mergeSql}

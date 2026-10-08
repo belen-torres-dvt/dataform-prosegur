@@ -1,0 +1,9 @@
+defaultProject: prosegur-siglo-poc
+defaultLocation: europe-west1
+defaultDataset: siglo_stg
+defaultAssertionDataset: siglo_assertions
+dataformCoreVersion: 3.0.0
+vars:
+  fecha_logica: "20261001"
+  fecha_carga: "2026-10-01 00:00:00"
+  aplicacion_origen: 1

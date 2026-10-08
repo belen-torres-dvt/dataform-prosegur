@@ -1,0 +1,8 @@
+{
+  "name": "prosegur-siglo-dataform",
+  "version": "1.0.0",
+  "description": "Migración y modernización del Data Warehouse contable SIGLO (Teradata/Oracle a BigQuery Dataform)",
+  "dependencies": {
+    "@dataform/core": "3.0.0"
+  }
+}

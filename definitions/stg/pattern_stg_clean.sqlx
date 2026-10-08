@@ -1,0 +1,58 @@
+config {
+  type: "table",
+  schema: "siglo_stg",
+  description: "PATRÓN 1: Ingesta y saneamiento de Staging. Tipado seguro, trimming y limpieza de nulos.",
+  tags: ["staging", "poc_pl", "patron_stg"]
+}
+
+js {
+  const stg = require("includes/staging_helpers");
+}
+
+-- CTE con los datos crudos extraídos de Cloud Storage o Data Transfer
+WITH raw_source AS (
+  SELECT
+    LANGUAGE_CODE,
+    LANGUAGE_ID,
+    NLS_LANGUAGE,
+    NLS_TERRITORY,
+    ISO_LANGUAGE,
+    ISO_TERRITORY,
+    NLS_CODESET,
+    INSTALLED_FLAG,
+    CREATED_BY,
+    CREATION_DATE,
+    LAST_UPDATED_BY,
+    LAST_UPDATE_DATE,
+    LAST_UPDATE_LOGIN,
+    LOCAL_DATE_LANGUAGE,
+    UTF8_DATE_LANGUAGE,
+    ISO_LANGUAGE_3a
+  FROM \`prosegur-siglo-poc.siglo_raw.raw_fnd_languages_tl\`
+)
+
+SELECT
+  -- Normalización de cadenas y códigos mediante macros
+  ${stg.cleanString("LANGUAGE_CODE")} AS cod_idioma,
+  ${stg.toInt64("LANGUAGE_ID")} AS ide_idioma,
+  ${stg.cleanString("NLS_LANGUAGE")} AS des_idioma_nls,
+  ${stg.cleanString("NLS_TERRITORY")} AS des_territorio_nls,
+  ${stg.cleanString("ISO_LANGUAGE")} AS cod_iso_idioma,
+  ${stg.cleanString("ISO_TERRITORY")} AS cod_iso_territorio,
+  ${stg.cleanString("NLS_CODESET")} AS cod_juego_caracteres,
+  COALESCE(${stg.cleanString("INSTALLED_FLAG")}, 'N') AS flg_instalado,
+
+  -- Tipado de auditoría transaccional
+  ${stg.toInt64("CREATED_BY", -1)} AS ide_usuario_creacion,
+  ${stg.toTimestamp("CREATION_DATE")} AS fec_creacion,
+  ${stg.toInt64("LAST_UPDATED_BY", -1)} AS ide_usuario_actualiz,
+  ${stg.toTimestamp("LAST_UPDATE_DATE")} AS fec_actualiz,
+  ${stg.toInt64("LAST_UPDATE_LOGIN", -1)} AS ide_login_actualiz,
+
+  ${stg.cleanString("LOCAL_DATE_LANGUAGE")} AS des_idioma_fecha_local,
+  ${stg.cleanString("UTF8_DATE_LANGUAGE")} AS des_idioma_fecha_utf8,
+  ${stg.cleanString("ISO_LANGUAGE_3a")} AS cod_iso_idioma_3,
+
+  -- Metadatos de auditoría generados por macro
+  ${stg.stagingAuditColumns()}
+FROM raw_source
